@@ -1,4 +1,17 @@
 {
   "$schema": "https://raw.githubusercontent.com/itsDNNS/docsight-modules/main/registry.schema.json",
-  "modules": []
+  "modules": [
+    {
+      "id": "community.thresholds_vfkd_community",
+      "name": "VFKD Thresholds (Community)",
+      "description": "Community-derived signal thresholds for Vodafone Kabel Deutschland. More lenient than the official spec-based profile shipped with DOCSight.",
+      "author": "itsDNNS",
+      "repo": "https://github.com/itsDNNS/docsight-modules",
+      "path": "thresholds-vfkd-community",
+      "version": "1.0.0",
+      "minAppVersion": "2026.2",
+      "type": "driver",
+      "verified": true
+    }
+  ]
 }
