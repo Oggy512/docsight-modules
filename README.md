@@ -179,19 +179,23 @@ from app.collectors.base import Collector, CollectorResult
 class MyCollector(Collector):
     name = "mymodule"
 
-    def __init__(self, config_mgr, poll_interval=300, **kwargs):
+    def __init__(self, config_mgr, storage, web, poll_interval=300, **kwargs):
         super().__init__(poll_interval)
         self._config = config_mgr
+        self._storage = storage  # core SnapshotStorage instance
+        self._web = web          # web state manager
 
     def is_enabled(self):
         return self._config.get("mymodule_enabled", False)
 
     def collect(self):
         data = {"value": 42}
-        return CollectorResult.ok(self.name, data)
+        return CollectorResult(source=self.name, data=data)
 ```
 
-The collector runs in a thread on each polling cycle. The base class provides exponential backoff on repeated failures (30s → 3600s max, auto-reset after 24h idle).
+DOCSight passes `config_mgr`, `storage`, and `web` to every module collector. The base class provides exponential backoff on repeated failures (30s to 3600s max, auto-reset after 24h idle).
+
+> **Note:** Community modules receive a `_ModuleConfigProxy` instead of the raw `ConfigManager`. This proxy hides secret keys (modem password, API tokens) that are not declared in your module's `config` defaults.
 
 ### `publisher` — Data Export (e.g., MQTT)
 
@@ -207,30 +211,52 @@ Format: `filename.py:ClassName`. Publisher classes receive collected data and ex
 "contributes": { "settings": "templates/mymodule_settings.html" }
 ```
 
-Your settings template is rendered in the Settings page under "Extensions":
+Your settings template is rendered in the Settings page under the Modules section. The panel ID must follow the pattern `panel-mod-{module_id_with_dots_replaced_by_underscores}`:
 
 ```html
-<div class="settings-group">
-  <label class="settings-label" for="mymodule_api_url">
-    {{ t['community.mymodule.api_url'] or 'API URL' }}
-  </label>
-  <input type="text" id="mymodule_api_url" name="mymodule_api_url"
-         class="settings-input" value="{{ config.mymodule_api_url }}"
-         placeholder="https://api.example.com">
+<div class="settings-panel" id="panel-mod-community_mymodule">
+    <div class="settings-card glass">
+        <div class="card-header">
+            <div class="card-title-group">
+                <div class="card-icon blue"><i data-lucide="puzzle"></i></div>
+                <div>
+                    <div class="card-title">{{ t.get('community.mymodule.title', 'My Module') }}</div>
+                    <div class="card-subtitle">{{ t.get('community.mymodule.desc', 'Module description') }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="form-grid cols-2">
+            <div class="form-group">
+                <label for="mymodule_api_url">{{ t.get('community.mymodule.api_url', 'API URL') }}</label>
+                <input type="text" id="mymodule_api_url" name="mymodule_api_url"
+                       value="{{ config.get('mymodule_api_url', '') }}"
+                       placeholder="https://api.example.com">
+            </div>
+            <div class="form-group full-width">
+                <label class="toggle">
+                    <input type="checkbox" name="mymodule_enabled"
+                           {{ 'checked' if config.get('mymodule_enabled') }}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <label style="margin-left:8px;">{{ t.get('community.mymodule.enable', 'Enable') }}</label>
+            </div>
+        </div>
+    </div>
 </div>
 ```
 
-> **Important:** Template filename must be unique — do **not** name it `settings.html` (conflicts with core). Use `mymodule_settings.html`.
+> **Important:** Template filename must be unique. Do **not** name it `settings.html` (conflicts with core). Use `mymodule_settings.html`.
 
-**Checkbox pattern** (required for boolean config keys):
+**Available CSS classes:**
+- `settings-card glass` - card container with glass effect
+- `card-header`, `card-title-group`, `card-icon {color}`, `card-title`, `card-subtitle` - card header
+- `form-grid cols-2` - two-column form layout
+- `form-group` - single form field (label + input)
+- `form-group full-width` - full-width field spanning both columns
+- `form-hint` - hint text below an input
+- `toggle`, `toggle-slider` - toggle switch (replaces checkbox)
 
-```html
-<input type="hidden" name="mymodule_enabled" value="false">
-<input type="checkbox" id="mymodule_enabled" name="mymodule_enabled"
-       value="true" {% if config.mymodule_enabled %}checked{% endif %}>
-```
-
-Both the hidden input (fallback when unchecked) and `value="true"` are **required**. Without them, unchecked checkboxes silently store the wrong value.
+**Icon colors:** `blue`, `purple`, `amber`, `green`
 
 ### `i18n` — Translations
 
@@ -341,6 +367,40 @@ The driver is registered in DOCSight's `DriverRegistry` on startup. Module drive
 
 See the [Adding Modem Support](https://github.com/itsDNNS/docsight/wiki/Adding-Modem-Support) wiki page for the full `get_docsis_data()` return format and driver development tips.
 
+### `theme` — Color Theme
+
+```json
+"contributes": { "theme": "theme.json" }
+```
+
+A theme module provides dark and light color schemes. The `theme.json` must contain exactly two sections (`dark` and `light`), each with CSS custom property overrides:
+
+```json
+{
+  "meta": { "family": "dark-first" },
+  "dark": {
+    "--bg": "#1a1b26",
+    "--surface": "#1f2335",
+    "--text": "#c0caf5",
+    "--accent": "#7aa2f7",
+    "--good": "#9ece6a",
+    "--warn": "#e0af68",
+    "--crit": "#f7768e",
+    "--muted": "#565f89"
+  },
+  "light": {
+    "--bg": "#f0f0f0",
+    "--surface": "#ffffff",
+    "--text": "#1a1b26",
+    "--accent": "#2e7de9"
+  }
+}
+```
+
+Only one theme can be active at a time. Users select themes in Settings > Appearance.
+
+**Security restriction:** Theme modules cannot contribute `collector`, `routes`, or `publisher`.
+
 ### `static` — CSS & JavaScript
 
 ```json
@@ -353,6 +413,40 @@ Files are served at `/modules/<module-id>/static/`. Two files are auto-detected 
 - `main.js` — JavaScript
 
 Other static files (images, fonts, etc.) are accessible at their path but not auto-loaded.
+
+---
+
+## Smart Capture Integration
+
+Module collectors can integrate with DOCSight's Smart Capture engine to trigger automated measurements when module-specific events are detected.
+
+**Pattern:** Your collector receives the Smart Capture engine via post-construction injection and evaluates events through it after saving them:
+
+```python
+class MyCollector(Collector):
+    name = "mymodule"
+
+    def __init__(self, config_mgr, storage, web, **kwargs):
+        super().__init__(300)
+        self._storage = storage
+        self._smart_capture = None
+
+    def set_smart_capture(self, smart_capture):
+        """Inject Smart Capture engine for event evaluation."""
+        self._smart_capture = smart_capture
+
+    def collect(self):
+        events = self._detect_events()
+        if events and hasattr(self._storage, "save_events_with_ids"):
+            self._storage.save_events_with_ids(events)
+            if self._smart_capture:
+                self._smart_capture.evaluate(events)
+        return CollectorResult(source=self.name)
+```
+
+Use `save_events_with_ids()` (not `save_events()`) so each event gets annotated with its database row ID for execution correlation.
+
+The Smart Capture engine is wired to your collector in `main.py` after `discover_collectors()` returns. See the [Connection Monitor](https://github.com/itsDNNS/docsight/tree/main/app/modules/connection_monitor) module for a working example.
 
 ---
 
@@ -470,8 +564,11 @@ These built-in DOCSight modules serve as examples:
 | [Journal](https://github.com/itsDNNS/docsight/tree/main/app/modules/journal) | analysis | routes, i18n | Medium |
 | [Weather](https://github.com/itsDNNS/docsight/tree/main/app/modules/weather) | integration | collector, routes, settings, i18n | Full |
 | [Backup](https://github.com/itsDNNS/docsight/tree/main/app/modules/backup) | integration | collector, routes, settings, i18n | Full |
+| [Connection Monitor](https://github.com/itsDNNS/docsight/tree/main/app/modules/connection_monitor) | integration | collector, routes, settings, i18n | Full + Smart Capture |
+| [Speedtest](https://github.com/itsDNNS/docsight/tree/main/app/modules/speedtest) | integration | collector, routes, settings, i18n | Full |
 | [MQTT](https://github.com/itsDNNS/docsight/tree/main/app/modules/mqtt) | integration | publisher, settings, i18n | Publisher |
 | [VFKD Thresholds](https://github.com/itsDNNS/docsight/tree/main/app/modules/thresholds_vfkd) | driver | thresholds | Minimal |
+| [Classic Theme](https://github.com/itsDNNS/docsight/tree/main/app/modules/theme_classic) | theme | theme | Minimal |
 | [GenericDriver](https://github.com/itsDNNS/docsight/blob/main/app/drivers/generic.py) | driver | driver | Minimal |
 
 ---
