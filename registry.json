@@ -4,7 +4,7 @@
     {
       "id": "community.thresholds_vfkd_community",
       "name": "VFKD Thresholds (Community)",
-      "description": "Community-derived signal thresholds for Vodafone Kabel Deutschland. More lenient than the official spec-based profile shipped with DOCSight.",
+      "description": "Signal thresholds derived from the vodafonekabelforum.de community guidelines. More lenient than the official Vodafone spec profile shipped with DOCSight.",
       "author": "itsDNNS",
       "repo": "https://github.com/itsDNNS/docsight-modules",
       "version": "1.0.0",
